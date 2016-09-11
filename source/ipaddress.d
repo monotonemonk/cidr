@@ -67,6 +67,7 @@ struct Network {
 		enforce(network.type == netmask.type, "invalid netmask for network");
 		this.netmask = netmask;
 		this.network = network;
+		this.network.inet6[3] = this.network.inet6[3] & this.netmask.inet6[3]; // set the network to the first address in the network
 	}
 	//static opCall(IPAddress netmask) {
 	//	Network ret;
@@ -101,15 +102,36 @@ struct Network {
 			}
 		}
 		auto ret = Ret();
-		ret.network.inet6[3] = this.network.inet6[3] & netmask.inet6[3]; // set the network to the first address in the network
-		ret.front = ret.network;
+		ret.front = network;
+		ret.network = network;
 		ret.netmask = netmask;
+		return ret;
+	}
+
+	import std.traits : isIntegral;
+	T opCast(T)() if (isIntegral!T) {
+		import std.bitmanip : nativeToLittleEndian;
+		T ret;
+		with (IPAddress.Type) final switch (netmask.type) {
+			case ipv4:
+			auto bytes = netmask.inet6[3].nativeToLittleEndian!uint;
+			uint* n = cast(uint*)bytes.ptr;
+			while (*n>0 && (*n&1)) {
+				//writefln("%.32b", *n);
+				*n >>= 1;
+				ret++;
+			}
+			break;
+			case ipv6:
+				assert(0, "ipv6");
+				//break;
+		}
 		return ret;
 	}
 
 	string toString() {
 		import std.format;
-		return "%s/%d".format(network, 2);
+		return "%s/%d".format(network, cast(int)this);
 	}
 }
 
@@ -146,8 +168,24 @@ unittest {
 	import testdata;
 	import std.format;
 
-	auto test = testdata.t;
+	auto test = testdata.ip;
 	assert(to!IPAddress(test.input).toString == test.output, "%s != %s".format(test.input, test.output));
+
+	import std.array;
+	import std.algorithm;
+	import std.range;
+	auto network = to!IPAddress(network_input.ip).network(to!IPAddress(network_input.mask));
+	assert(network.netmask.toString == "255.255.255.0");
+	assert(network.network.toString == network_output.network, "%s != %s".format(network.network.toString, network_output.network));
+	assert(network.toString == network_output.network_string, "%s != %s".format(network.toString, network_output.network_string));
+	try {
+		assert(network.hosts().map!(a=>a.toString).array == network_output.hosts);
+	} catch (Throwable t) {
+		foreach (host, test; lockstep(network.hosts, network_output.hosts)) {
+			writefln("%s == %s: %s", host, test, host.toString==test);
+		}
+	}
+	//assert(network.)
 
 	//foreach (test; tests) {
 	//	static if (is(test: IPTest)) {
