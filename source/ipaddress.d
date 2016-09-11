@@ -15,11 +15,15 @@ struct IPAddress {
 	}
 
 	string toString() {
-		import std.format;
+		import std.array;
+		string[] ret;
 		if (type == Type.ipv4) {
 			ubyte[] buf = (cast(ubyte*)&inet6[3])[0..uint.sizeof];
-			//return "%s - %s (%s)".format(inet6[3], buf, inet6);
-			return "%s".format(buf);
+			foreach (b; buf) {
+				import std.conv;
+				ret ~= std.conv.to!string(b);
+			}
+			return ret.join('.');
 		} else {
 			assert(0);
 		}
@@ -82,29 +86,13 @@ struct Network {
 			bool empty;
 			void popFront() {
 				front++;
-				//empty=true;
-				//return;
-				 //TODO: detect if still within netmask
 				final switch (front.type) {
 					case IPAddress.Type.ipv4:
 						import core.sys.posix.arpa.inet;
 						auto a1 = network.inet6[3].htonl();
 						auto a2 = netmask.inet6[3].htonl();
 						auto a3 = front.inet6[3].htonl();
-						//writefln("%32.b\n%32.b\n%32.b", a1, a2, a3);
 						empty = (a1 & a2) != (a2 & a3);
-						//writefln("empty:%s s:%s", empty, front); // this is right
-						//writefln("& %32.b %b %b", a1 & a2, a1, a2);
-						//writefln("& %32.b %b %b", a2 & a3, a2, a3);
-						//writefln("^ %32.b", a1 ^ a2);
-						//writefln("| %32.b", a1 | a2);
-						//writeln((a1 & a2) == a3);
-						//writefln("%32.b\n%32.b\n%32.b", front.inet6[3], netmask.inet6[3], front.inet6[3]);
-						//writefln("%s T", (front.inet6[3] & netmask.inet6[3]) == (network.inet6[3] && netmask.inet6[3]));
-						//writefln("%32.b", (front.inet6[3] & netmask.inet6[3]));
-						//writefln("%32.b", (front.inet6[3] ^ netmask.inet6[3]));
-						//writefln("%32.b", (front.inet6[3] | netmask.inet6[3]));
-						//writeln((front.inet6[3] & netmask.inet6[3]) == netmask.inet6[3]);
 						break;
 					case IPAddress.Type.ipv6:
 						assert(0, "ipv6 not implemented");
@@ -117,6 +105,11 @@ struct Network {
 		ret.front = ret.network;
 		ret.netmask = netmask;
 		return ret;
+	}
+
+	string toString() {
+		import std.format;
+		return "%s/%d".format(network, 2);
 	}
 }
 
@@ -140,7 +133,7 @@ auto to(T = IPAddress)(string s) if (is(T == IPAddress)) {
 		if (components.length == 4) {
 			ubyte[] arr = (cast(ubyte*)&inet6[3])[0 .. 4];
 			foreach (i, n; components) {
-				arr[i] = to!ubyte(n);
+				arr[i] = std.conv.to!ubyte(n);
 			}
 		} else {
 			
@@ -150,11 +143,20 @@ auto to(T = IPAddress)(string s) if (is(T == IPAddress)) {
 }
 
 unittest {
-	enum tests = [
-		"192.168.0.1"
-	];
-	foreach (test; tests) {
-		//assert(to!IPAddress(test).toString == "192.168.0.1");
-		writeln("a: ", to!IPAddress(test).toString);
-	}
+	import testdata;
+	import std.format;
+
+	auto test = testdata.t;
+	assert(to!IPAddress(test.input).toString == test.output, "%s != %s".format(test.input, test.output));
+
+	//foreach (test; tests) {
+	//	static if (is(test: IPTest)) {
+	//		//assert(to!IPAddress(test).toString == "192.168.0.1", "to!IPAddress(test).toString : %s".format(to!IPAddress(test).toString));			
+	//		assert(to!IPAddress(test.input).toString == test.output, "%s != %s".format(test.input, test.output));
+	//	} else if (is(test: NetworkTest)) {
+
+	//	} else {
+	//		assert(0, "unsupported test");
+	//	}
+	//}
 }
