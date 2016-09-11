@@ -2,7 +2,7 @@ name "cidr"
 description "A CIDR IP library"
 authors "Rory McGuire <rjmcguire@gmail.com>"
 copyright "Copyright © 2016, Rory McGuire"
-license "MIT"
+license "BSL"
 configuration "default" {
 	excludedSourceFiles "source/testdata.d"
 }
