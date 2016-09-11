@@ -1,4 +1,5 @@
 import std.stdio;
+import std.exception;
 
 enum check_ = () {
 	assert(uint.sizeof == 4);
@@ -49,11 +50,78 @@ struct IPAddress {
 		incr.bytes[index]++;
 		inet6 = incr.inet6;
 	}
+
+
+	Network network(IPAddress netmask) {
+		return Network(this, netmask);
+	}
+}
+
+struct Network {
+	@disable this();
+	this(IPAddress network, IPAddress netmask) {
+		enforce(network.type == netmask.type, "invalid netmask for network");
+		this.netmask = netmask;
+		this.network = network;
+	}
+	//static opCall(IPAddress netmask) {
+	//	Network ret;
+	//	ret.netmask = netmask;
+	//	return ret;
+	//}
+	//static opCall(string netmask) {
+	//	return Network(to!IPAddress(netmask));
+	//}
+	IPAddress network;
+	IPAddress netmask;
+	auto hosts() {
+		struct Ret {
+			IPAddress front;
+			IPAddress network;
+			IPAddress netmask;
+			bool empty;
+			void popFront() {
+				front++;
+				//empty=true;
+				//return;
+				 //TODO: detect if still within netmask
+				final switch (front.type) {
+					case IPAddress.Type.ipv4:
+						import core.sys.posix.arpa.inet;
+						auto a1 = network.inet6[3].htonl();
+						auto a2 = netmask.inet6[3].htonl();
+						auto a3 = front.inet6[3].htonl();
+						//writefln("%32.b\n%32.b\n%32.b", a1, a2, a3);
+						empty = (a1 & a2) != (a2 & a3);
+						//writefln("empty:%s s:%s", empty, front); // this is right
+						//writefln("& %32.b %b %b", a1 & a2, a1, a2);
+						//writefln("& %32.b %b %b", a2 & a3, a2, a3);
+						//writefln("^ %32.b", a1 ^ a2);
+						//writefln("| %32.b", a1 | a2);
+						//writeln((a1 & a2) == a3);
+						//writefln("%32.b\n%32.b\n%32.b", front.inet6[3], netmask.inet6[3], front.inet6[3]);
+						//writefln("%s T", (front.inet6[3] & netmask.inet6[3]) == (network.inet6[3] && netmask.inet6[3]));
+						//writefln("%32.b", (front.inet6[3] & netmask.inet6[3]));
+						//writefln("%32.b", (front.inet6[3] ^ netmask.inet6[3]));
+						//writefln("%32.b", (front.inet6[3] | netmask.inet6[3]));
+						//writeln((front.inet6[3] & netmask.inet6[3]) == netmask.inet6[3]);
+						break;
+					case IPAddress.Type.ipv6:
+						assert(0, "ipv6 not implemented");
+						//break;
+				}
+			}
+		}
+		auto ret = Ret();
+		ret.network.inet6[3] = this.network.inet6[3] & netmask.inet6[3]; // set the network to the first address in the network
+		ret.front = ret.network;
+		ret.netmask = netmask;
+		return ret;
+	}
 }
 
 
 auto to(T = IPAddress)(string s) if (is(T == IPAddress)) {
-	import std.exception;
 	import std.string;
 	import std.algorithm : canFind;
 	import std.conv;
