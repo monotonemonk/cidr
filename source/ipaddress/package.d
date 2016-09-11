@@ -1,4 +1,4 @@
-import std.stdio;
+module ipaddress;
 import std.exception;
 
 enum check_ = () {
@@ -69,13 +69,7 @@ struct Network {
 		this.network = network;
 		this.network.inet6[3] = this.network.inet6[3] & this.netmask.inet6[3]; // set the network to the first address in the network
 	}
-	//static opCall(IPAddress netmask) {
-	//	Network ret;
-	//	ret.netmask = netmask;
-	//	return ret;
-	//}
-	//static opCall(string netmask) {
-	//	return Network(to!IPAddress(netmask));
+	//this(string netmask) { // allow construction from strings too, perhaps use a cast?
 	//}
 	IPAddress network;
 	IPAddress netmask;
@@ -167,6 +161,7 @@ auto to(T = IPAddress)(string s) if (is(T == IPAddress)) {
 unittest {
 	import testdata;
 	import std.format;
+	import std.stdio;
 
 	auto test = testdata.ip;
 	assert(to!IPAddress(test.input).toString == test.output, "%s != %s".format(test.input, test.output));
@@ -185,16 +180,4 @@ unittest {
 			writefln("%s == %s: %s", host, test, host.toString==test);
 		}
 	}
-	//assert(network.)
-
-	//foreach (test; tests) {
-	//	static if (is(test: IPTest)) {
-	//		//assert(to!IPAddress(test).toString == "192.168.0.1", "to!IPAddress(test).toString : %s".format(to!IPAddress(test).toString));			
-	//		assert(to!IPAddress(test.input).toString == test.output, "%s != %s".format(test.input, test.output));
-	//	} else if (is(test: NetworkTest)) {
-
-	//	} else {
-	//		assert(0, "unsupported test");
-	//	}
-	//}
 }
