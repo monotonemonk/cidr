@@ -3,6 +3,7 @@ module cidr;
 import std.stdio;
 import std.exception;
 import core.sys.posix.arpa.inet;
+import std.format;
 
 struct IP {
 private:
@@ -13,8 +14,17 @@ public:
 	static IP fromString(string s) {
 		import std.exception;
 		import std.string;
-		import std.algorithm : canFind;
+		import std.algorithm : canFind, countUntil;
 		import std.conv;
+
+		IP ret;
+		auto netmask_idx = s.countUntil("/");
+		if (netmask_idx>=0) {
+			enforce(netmask_idx<s.length-2, "netmask invalid");
+			//writefln("mask: %d" , );
+			ret.setMask(to!ubyte(s[netmask_idx+1..$]));
+			s = s[0..netmask_idx];
+		}
 
 		string[] components;
 		if (s.canFind('.')) {
@@ -25,7 +35,6 @@ public:
 			enforce(0, "not an ipaddress");
 		}
 
-		IP ret;
 		with (ret) {
 			if (components.length == 4) {
 				ubyte[] arr = (cast(ubyte*)&_value)[0 .. 4];
@@ -38,7 +47,7 @@ public:
 		}
 		return ret;
 	}
-	void mask(string maskaddr) {
+	void setMask(string maskaddr) {
 		auto addr = IP.fromString(maskaddr);
 		uint counter = addr._value;
 		while ((counter & 1) == 0) {
@@ -48,9 +57,10 @@ public:
 			_netmask += 1;
 			counter >>= 1;
 		}
+		enforce(_netmask <= 32, "netmask max is 32: %d".format(_netmask));
 	}
-	void mask(ubyte v) {
-		enforce(v <= 32, "netmask max is 32");
+	void setMask(ubyte v) {
+		enforce(v <= 32, "netmask max is 32: %d".format(_netmask));
 		_netmask = v;
 	}
 	IP netmask() {
@@ -67,7 +77,7 @@ public:
 		return IP(_value);
 	}
 	uint mask() {
-		enforce(_netmask <= 32, "netmask max is 32");
+		enforce(_netmask <= 32, "netmask max is 32: %d".format(_netmask));
 		uint ret;
 		for (int i=0; i < _netmask; i++) {
 			ret <<= 1;
@@ -94,15 +104,70 @@ public:
 		//bytes = (cast(ubyte*)&tmp)[0 .. 4];
 		//writefln("\t%.8b\t%.8b\t%.8b\t%.8b", bytes[0], bytes[1], bytes[2], bytes[3]);
 
-
-		writefln("=====");
-		writefln("\t%.32b\n\t%.32b\n\t%.32b\n\t%.32b", other._value, _value, (other|_value), ((other&mask)|id));
-
 		return ((other&mask)|id) == id;
 	}
+	bool usable(IP other) {
+		return this.contains(other) && other._value != id._value && other._value != broadcast._value;
+	}
 
-	
-
+	auto range() {
+		struct Ret {
+			IP network;
+			bool empty;
+			IP front;
+			private uint _front;
+			void popFront() {
+				auto tmp = IP(_front);
+				if (!network.contains(tmp)) {
+					empty = true;
+					return;
+				}
+				assert(_front < typeof(_front).max);
+				_front++;
+				front = tmp;
+			}
+			IP back() {
+				return network.broadcast;
+			}
+			auto broadcast() {
+				return network.broadcast;
+			}
+			size_t length;
+			private typeof(this) prime() {
+				// pretend an empty netmask is a network with just one ip
+				if (network._netmask == 0) {
+					network._netmask = 32;
+				}
+				_front = network._value;
+				length = (~network.mask)+1;
+				this.popFront();
+				return this;
+			}
+		}
+		return Ret(IP(id, _netmask)).prime;
+	}
+	auto hosts() {
+		import std.traits : ReturnType;
+		struct Ret1 {
+			ReturnType!range inner;
+			alias inner this;
+			bool empty;
+			void popFront() {
+				inner.popFront();
+				// don't include broadcast
+				if (inner.empty || front._value == inner.broadcast._value) {
+					empty = true;
+				}
+			}
+			size_t length;
+			private typeof(this) prime() {
+				length = inner.length - 2;
+				popFront(); // skip network
+				return this;
+			}
+		}
+		return Ret1(range()).prime;//.drop(1).filter!(a => a._value != broadcast._value);
+	}
 	void print() {
 		import std.stdio;
 		writefln("======print:%s========", this);
@@ -112,9 +177,12 @@ public:
 		} else {
 			writefln("%.8b.%.8b.%.8b.%.8b", arr[0], arr[1], arr[2], arr[3]);
 		}
-		writefln("mask: %.32b - %s", mask(), netmask);
-		writefln("id:   %.32b - %s", id()._value, id);
 		writefln("ip:   %.32b - %s", ip()._value, ip);
+		if (_netmask) {
+			writefln("mask: %.32b - %s", mask(), netmask);
+			writefln("id:   %.32b - %s", id()._value, id);
+			writefln("range: %s - %s", range.front, range.back);
+		}
 		writefln("=====printed:%s=======", this);
 	}
 	string toString() {
@@ -137,21 +205,32 @@ public:
 
 unittest {
 	import testdata;
+	import std.algorithm : map;
+	import std.array;
 	auto ip = IP.fromString(network_input.ip);
-	writeln("ip: ", ip);
 	assert(ip.toString() == network_input.ip);
 	ip.print();
-	ip.mask("255.255.255.252");
+	ip = IP.fromString(network_input.network);
+	assert(ip.netmask.toString == network_output.netmask);
+	ip.setMask("255.255.255.252");
 	ip.print();
-	writeln("ip: ", ip);
-	ip.mask(30);
+	ip.setMask(30);
 	ip.print();
-	writeln("ip: ", ip);
 	assert(ip.id.toString == network_input.id);
-	writeln("broadcast: ", ip.broadcast.toString);
 	assert(ip.broadcast.toString == network_input.broadcast);
 	assert(ip.contains(IP.fromString(network_input.ip_host)));
 	assert(!ip.contains(IP.fromString(network_input.ip_host_fail)));
+
+	assert(ip.range.map!(a => a.toString).array == network_output.range);
+	assert(ip.range.map!(a => a.toString).array != network_output.hosts);
+	assert(ip.range.length == 4);
+	assert(ip.hosts.length == 2);
+	assert(ip.hosts.map!(a => a.toString).array == network_output.hosts);
+	assert(!ip.usable(IP.fromString(network_input.ip)));
+	assert(!ip.usable(IP.fromString(network_input.broadcast)));
+	foreach (item; network_output.hosts) {
+		assert(ip.usable(IP.fromString(item)));
+	}
 
 	//ip = IP.fromString("255.255.255.0");
 	//writeln("ip: ", ip);
