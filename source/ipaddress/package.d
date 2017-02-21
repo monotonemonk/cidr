@@ -20,7 +20,7 @@ public:
 		IP ret;
 		auto netmask_idx = s.countUntil("/");
 		if (netmask_idx>=0) {
-			enforce(netmask_idx<s.length-2, "netmask invalid");
+			enforce(netmask_idx<s.length-1, "netmask invalid");
 			//writefln("mask: %d" , );
 			ret.setMask(to!ubyte(s[netmask_idx+1..$]));
 			s = s[0..netmask_idx];
@@ -233,8 +233,12 @@ unittest {
 		assert(ip.usable(IP.fromString(item)));
 	}
 
-	//ip = IP.fromString("255.255.255.0");
-	//writeln("ip: ", ip);
-	//assert(ip.toString() == "255.255.255.0");
-	//ip.print();
+	ip = IP.fromString("255.255.255.0");
+	assert(ip.toString() == "255.255.255.0");
+	ip.print();
+	
+	ip = IP.fromString("10.255.0.0/8");
+	assert(ip.id().toString == "10.0.0.0");
+	ip.print();
+	
 }
