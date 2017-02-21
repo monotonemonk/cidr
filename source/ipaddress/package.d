@@ -48,6 +48,7 @@ public:
 		return ret;
 	}
 	void setMask(string maskaddr) {
+		_netmask = 0;
 		auto addr = IP.fromString(maskaddr);
 		uint counter = addr._value;
 		while ((counter & 1) == 0) {
