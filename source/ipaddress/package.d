@@ -1,183 +1,160 @@
-module ipaddress;
+module cidr;
+
+import std.stdio;
 import std.exception;
+import core.sys.posix.arpa.inet;
 
-enum check_ = () {
-	assert(uint.sizeof == 4);
-	return true;
-}();
-struct IPAddress {
-	bool empty = true;
-	uint[4] inet6;
+struct IP {
+private:
+	uint _value;
+	ubyte _netmask;
+public:
+	alias _value this;
+	static IP fromString(string s) {
+		import std.exception;
+		import std.string;
+		import std.algorithm : canFind;
+		import std.conv;
 
-	enum Type { ipv4, ipv6};
-	Type type() {
-		return cast(Type)(cast(int)inet6[0] != 0);
-	}
-
-	string toString() {
-		import std.array;
-		string[] ret;
-		if (type == Type.ipv4) {
-			ubyte[] buf = (cast(ubyte*)&inet6[3])[0..uint.sizeof];
-			foreach (b; buf) {
-				import std.conv;
-				ret ~= std.conv.to!string(b);
-			}
-			return ret.join('.');
+		string[] components;
+		if (s.canFind('.')) {
+			components = s.split('.');
+		} else if (s.canFind(':')) {
+			components = s.split(':');
 		} else {
-			assert(0);
+			enforce(0, "not an ipaddress");
 		}
-	}
-	//string toStringExtended() { // make a separate struct that contains more data than just the ipaddress
-	//	import std.string : format;
-	//	return "%s %s netmask %s".format(
-	//		type==Type.ipv6 ? "inet6" : "inet",
-	//		toString(),
-	//		"(netmask not set)",
-	//	);
-	//}
 
-	auto opUnary(string op)() if (op=="++") {
-		union Incr {
-			ubyte[uint.sizeof*inet6.length] bytes;
-			uint[4] inet6;
-		}
-		Incr incr;
-		incr.inet6 = inet6;
-		ubyte min_index = type == Type.ipv6 ? 0 : incr.bytes.length - 1 - uint.sizeof;
-		ubyte index = incr.bytes.length-1;
-		while (incr.bytes[index] == ubyte.max && index > min_index) {
-			incr.bytes[index] = 0;
-			index--;
-		}
-		assert(index>=min_index, "no more addresses");
-		incr.bytes[index]++;
-		inet6 = incr.inet6;
-	}
-
-
-	Network network(IPAddress netmask) {
-		return Network(this, netmask);
-	}
-}
-
-struct Network {
-	@disable this();
-	this(IPAddress network, IPAddress netmask) {
-		enforce(network.type == netmask.type, "invalid netmask for network");
-		this.netmask = netmask;
-		this.network = network;
-		this.network.inet6[3] = this.network.inet6[3] & this.netmask.inet6[3]; // set the network to the first address in the network
-	}
-	//this(string netmask) { // allow construction from strings too, perhaps use a cast?
-	//}
-	IPAddress network;
-	IPAddress netmask;
-	auto hosts() {
-		struct Ret {
-			IPAddress front;
-			IPAddress network;
-			IPAddress netmask;
-			bool empty;
-			void popFront() {
-				front++;
-				final switch (front.type) {
-					case IPAddress.Type.ipv4:
-						import core.sys.posix.arpa.inet;
-						auto a1 = network.inet6[3].htonl();
-						auto a2 = netmask.inet6[3].htonl();
-						auto a3 = front.inet6[3].htonl();
-						empty = (a1 & a2) != (a2 & a3);
-						break;
-					case IPAddress.Type.ipv6:
-						assert(0, "ipv6 not implemented");
-						//break;
+		IP ret;
+		with (ret) {
+			if (components.length == 4) {
+				ubyte[] arr = (cast(ubyte*)&_value)[0 .. 4];
+				foreach (i, n; components) {
+					arr[3-i] = std.conv.to!ubyte(n);
 				}
+			} else {
+				enforce(0, "err, ipv6 not supported");
 			}
-		}
-		auto ret = Ret();
-		ret.front = network;
-		ret.network = network;
-		ret.netmask = netmask;
-		return ret;
-	}
-
-	import std.traits : isIntegral;
-	T opCast(T)() if (isIntegral!T) {
-		import std.bitmanip : nativeToLittleEndian;
-		T ret;
-		with (IPAddress.Type) final switch (netmask.type) {
-			case ipv4:
-			auto bytes = netmask.inet6[3].nativeToLittleEndian!uint;
-			uint* n = cast(uint*)bytes.ptr;
-			while (*n>0 && (*n&1)) {
-				//writefln("%.32b", *n);
-				*n >>= 1;
-				ret++;
-			}
-			break;
-			case ipv6:
-				assert(0, "ipv6");
-				//break;
 		}
 		return ret;
 	}
+	void mask(string maskaddr) {
+		auto addr = IP.fromString(maskaddr);
+		uint counter = addr._value;
+		while ((counter & 1) == 0) {
+			counter >>= 1;
+		}
+		while ((counter & 1) == 1) {
+			_netmask += 1;
+			counter >>= 1;
+		}
+	}
+	void mask(ubyte v) {
+		enforce(v <= 32, "netmask max is 32");
+		_netmask = v;
+	}
+	IP netmask() {
+		return IP(mask());
+	}
+	IP id() {
+		return IP(mask & _value);
+	}
+	alias network = id;
+	IP broadcast() {
+		return IP((~mask) | id);
+	}
+	IP ip() {
+		return IP(_value);
+	}
+	uint mask() {
+		enforce(_netmask <= 32, "netmask max is 32");
+		uint ret;
+		for (int i=0; i < _netmask; i++) {
+			ret <<= 1;
+			ret |= 1;
+			//writefln("%d %.32b", _netmask, ret);
+		}
+		ret <<= (32-_netmask);
+		//writefln("---%d %.32b", _netmask, ret);
+		return ret;
+	}
+	bool contains(IP other) {
+		//auto bytes = cast(ubyte[])this;
+		//writefln("%.32b %.32b", _value, _value&mask);
+		//writefln("%.32b %.32b %s", other._value, other._value&mask, (_value&mask) == (other._value&mask));
+		//writefln("%.32b %.32b", _value.htonl, _value.htonl&mask);
+		//writefln("%.32b %.32b %s", other._value.htonl, other._value.htonl&mask, (_value.htonl&mask)==(other._value.htonl&mask));
+		//writefln("\t%.8b\t%.8b\t%.8b\t%.8b", bytes[0], bytes[1], bytes[2], bytes[3]);
+		//bytes = cast(ubyte[])other;
+		//writefln("\t%.8b\t%.8b\t%.8b\t%.8b", bytes[0], bytes[1], bytes[2], bytes[3]);
+		//auto tmp = _value.htonl;
+		//bytes = (cast(ubyte*)&tmp)[0 .. 4];
+		//writefln("\t%.8b\t%.8b\t%.8b\t%.8b", bytes[0], bytes[1], bytes[2], bytes[3]);
+		//tmp = other._value.htonl;
+		//bytes = (cast(ubyte*)&tmp)[0 .. 4];
+		//writefln("\t%.8b\t%.8b\t%.8b\t%.8b", bytes[0], bytes[1], bytes[2], bytes[3]);
 
+
+		writefln("=====");
+		writefln("\t%.32b\n\t%.32b\n\t%.32b\n\t%.32b", other._value, _value, (other|_value), ((other&mask)|id));
+
+		return ((other&mask)|id) == id;
+	}
+
+	
+
+	void print() {
+		import std.stdio;
+		writefln("======print:%s========", this);
+		ubyte[] arr = cast(ubyte[])this;
+		if (_netmask != 0) {
+			writefln("%.8b.%.8b.%.8b.%.8b/%d", arr[0], arr[1], arr[2], arr[3], _netmask);
+		} else {
+			writefln("%.8b.%.8b.%.8b.%.8b", arr[0], arr[1], arr[2], arr[3]);
+		}
+		writefln("mask: %.32b - %s", mask(), netmask);
+		writefln("id:   %.32b - %s", id()._value, id);
+		writefln("ip:   %.32b - %s", ip()._value, ip);
+		writefln("=====printed:%s=======", this);
+	}
 	string toString() {
 		import std.format;
-		return "%s/%d".format(network, cast(int)this);
-	}
-}
-
-
-auto to(T = IPAddress)(string s) if (is(T == IPAddress)) {
-	import std.string;
-	import std.algorithm : canFind;
-	import std.conv;
-
-	string[] components;
-	if (s.canFind('.')) {
-		components = s.split('.');
-	} else if (s.canFind(':')) {
-		components = s.split(':');
-	} else {
-		enforce(0, "not an ipaddress");
-	}
-
-	IPAddress ret;
-	with (ret) {
-		if (components.length == 4) {
-			ubyte[] arr = (cast(ubyte*)&inet6[3])[0 .. 4];
-			foreach (i, n; components) {
-				arr[i] = std.conv.to!ubyte(n);
-			}
+		ubyte[] arr = cast(ubyte[])this;
+		if (_netmask != 0) {
+			return "%d.%d.%d.%d/%d".format(arr[3], arr[2], arr[1], arr[0], _netmask);
 		} else {
-			
+			return "%d.%d.%d.%d".format(arr[3], arr[2], arr[1], arr[0]);
 		}
 	}
-	return ret;
+
+	ubyte[] opCast(T)() if (is(T == ubyte[])) {
+		return (cast(ubyte*)&_value)[0 .. 4];
+	}
+	uint opCast(T)() if (is(T == uint)) {
+		return _value;
+	}
 }
 
 unittest {
 	import testdata;
-	import std.format;
-	import std.stdio;
+	auto ip = IP.fromString(network_input.ip);
+	writeln("ip: ", ip);
+	assert(ip.toString() == network_input.ip);
+	ip.print();
+	ip.mask("255.255.255.252");
+	ip.print();
+	writeln("ip: ", ip);
+	ip.mask(30);
+	ip.print();
+	writeln("ip: ", ip);
+	assert(ip.id.toString == network_input.id);
+	writeln("broadcast: ", ip.broadcast.toString);
+	assert(ip.broadcast.toString == network_input.broadcast);
+	assert(ip.contains(IP.fromString(network_input.ip_host)));
+	assert(!ip.contains(IP.fromString(network_input.ip_host_fail)));
 
-	auto test = testdata.ip;
-	assert(to!IPAddress(test.input).toString == test.output, "%s != %s".format(test.input, test.output));
-
-	import std.array;
-	import std.algorithm;
-	import std.range;
-	auto network = to!IPAddress(network_input.ip).network(to!IPAddress(network_input.mask));
-	assert(network.netmask.toString == "255.255.255.0");
-	assert(network.network.toString == network_output.network, "%s != %s".format(network.network.toString, network_output.network));
-	assert(network.toString == network_output.network_string, "%s != %s".format(network.toString, network_output.network_string));
-	try {
-		assert(network.hosts().map!(a=>a.toString).array == network_output.hosts);
-	} catch (Throwable t) {
-		foreach (host, test; lockstep(network.hosts, network_output.hosts)) {
-			writefln("%s == %s: %s", host, test, host.toString==test);
-		}
-	}
+	//ip = IP.fromString("255.255.255.0");
+	//writeln("ip: ", ip);
+	//assert(ip.toString() == "255.255.255.0");
+	//ip.print();
 }
