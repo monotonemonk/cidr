@@ -134,7 +134,7 @@ public:
 		//bytes = (cast(ubyte*)&tmp)[0 .. 4];
 		//writefln("\t%.8b\t%.8b\t%.8b\t%.8b", bytes[0], bytes[1], bytes[2], bytes[3]);
 
-		return ((other&mask)|id) == id;
+		return (other&mask) == id;
 	}
 	bool usable(IP other) {
 		return this.contains(other) && other._value != id._value && other._value != broadcast._value;
@@ -284,4 +284,13 @@ unittest {
 
 	import std.exception;
 	assertThrown!IPv6NotImplemented(IP(new Internet6Address(Internet6Address.parse("::ffff:127.0.0.1"), cast(ushort)0)));
+}
+
+
+unittest {
+	auto net = IP.fromString("216.239.32.0/19");
+	auto ip = IP.fromString("192.168.0.1");
+	net.print();
+	ip.print();
+	assert(!net.contains(ip));
 }
