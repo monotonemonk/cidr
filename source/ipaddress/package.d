@@ -1,28 +1,54 @@
-module cidr;
+module cidr.ipaddress;
+import cidr.exception;
 
 import std.stdio;
 import std.exception;
 import core.sys.posix.arpa.inet;
 import std.format;
+import std.traits : isSomeString;
 
 struct IP {
 private:
 	uint _value;
 	ubyte _netmask;
 public:
+	import std.socket;
+	this(uint address) {
+		_value = address;
+	}
+	this(uint address, ubyte maskbits) {
+		this(address);
+		this._netmask = maskbits;
+	}
+	this(AddressT)(AddressT addr)
+		if (__traits(compiles, addr.toAddrString=="")
+			|| __traits(compiles, addr.addr == cast(uint)0)
+			|| __traits(compiles, addr.addr == cast(ubyte[16])""))
+	{
+		static if (__traits(compiles, addr.addr == cast(ubyte[16])"")) {
+			enforce!IPv6NotImplemented(0, "ipv6 not implemented");
+		} else static if (__traits(compiles, addr.addr == cast(uint)0)) {
+			this._value = addr.addr;
+			return;
+		} else if (__traits(compiles, addr.toAddrString=="")) {
+			this = addr.toAddrString();
+			return;
+		}
+		assert(0);
+	}
 	alias _value this;
-	static IP fromString(string s) {
+
+	ref opAssign(T)(T s) if (isSomeString!T) {
 		import std.exception;
 		import std.string;
 		import std.algorithm : canFind, countUntil;
 		import std.conv;
 
-		IP ret;
 		auto netmask_idx = s.countUntil("/");
 		if (netmask_idx>=0) {
 			enforce(netmask_idx<s.length-1, "netmask invalid");
 			//writefln("mask: %d" , );
-			ret.setMask(to!ubyte(s[netmask_idx+1..$]));
+			setMask(to!ubyte(s[netmask_idx+1..$]));
 			s = s[0..netmask_idx];
 		}
 
@@ -35,16 +61,19 @@ public:
 			enforce(0, "not an ipaddress");
 		}
 
-		with (ret) {
-			if (components.length == 4) {
-				ubyte[] arr = (cast(ubyte*)&_value)[0 .. 4];
-				foreach (i, n; components) {
-					arr[3-i] = std.conv.to!ubyte(n);
-				}
-			} else {
-				enforce(0, "err, ipv6 not supported");
+		if (components.length == 4) {
+			ubyte[] arr = (cast(ubyte*)&_value)[0 .. 4];
+			foreach (i, n; components) {
+				arr[3-i] = std.conv.to!ubyte(n);
 			}
+		} else {
+			enforce(0, "err, ipv6 not supported");
 		}
+		return this;
+	}
+	static IP fromString(string s) {
+		IP ret;
+		ret = s;
 		return ret;
 	}
 	void setMask(string maskaddr) {
@@ -240,5 +269,19 @@ unittest {
 	ip = IP.fromString("10.255.0.0/8");
 	assert(ip.id().toString == "10.0.0.0");
 	ip.print();
-	
+
+	auto ip2 = IP.fromString("10.255.0.1");
+	assert(ip.contains(ip2));
+	assert(ip2.toString == "10.255.0.1");
+}
+
+
+unittest {
+	import std.socket;
+	auto ip = IP.fromString("10.255.0.0/8");
+	auto ip3 = IP(InternetAddress.parse("10.255.0.1"));
+	assert(ip.contains(ip3));
+
+	import std.exception;
+	assertThrown!IPv6NotImplemented(IP(new Internet6Address(Internet6Address.parse("::ffff:127.0.0.1"), cast(ushort)0)));
 }
